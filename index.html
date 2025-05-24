@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Tetris</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #f0f0f0;
+    margin: 0;
+    padding: 20px;
+  }
+  h1 {
+    color: #333;
+  }
+  #game-area {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: flex-start;
+    margin-top: 20px;
+  }
+  #tetris-board {
+    border: 1px solid #000;
+    background-color: #e0e0e0;
+    margin-right: 20px; /* Space between board and side panel */
+  }
+  #side-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  #game-info {
+    background-color: #ddd;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-bottom: 20px; /* Space between game info and next piece */
+    width: 150px; /* Fixed width for the info panel */
+  }
+  #game-info span {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.9em;
+  }
+  #game-info span:last-child {
+    margin-bottom: 0;
+  }
+  #next-piece-area {
+    background-color: #ddd;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    display: flex; /* To center the canvas if it's smaller */
+    flex-direction: column;
+    align-items: center;
+  }
+  #next-piece-area h3 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-size: 1em;
+    color: #333;
+  }
+  #next-piece-canvas {
+    border: 1px solid #999;
+    background-color: #e0e0e0;
+  }
+  #restart-button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    font-size: 1em;
+    color: white;
+    background-color: #007bff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  #restart-button:hover {
+    background-color: #0056b3;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Tetris</h1>
+
+  <div id="game-area">
+    <canvas id="tetris-board" width="300" height="600"></canvas>
+    <div id="side-panel">
+      <div id="game-info">
+        <h3>Game Info</h3>
+        <span id="score">Score: 0</span>
+        <span id="level">Level: 1</span>
+        <span id="lines">Lines: 0</span>
+      </div>
+      <div id="next-piece-area">
+        <h3>Next Piece</h3>
+        <canvas id="next-piece-canvas" width="120" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <button id="restart-button">Restart</button>
+
+  <script>
+    // Function to rotate a matrix (tetrimino shape)
+    function rotateMatrix(matrix) {
+      const rows = matrix.length;
+      const cols = matrix[0].length;
+      const newMatrix = [];
+      for (let c = 0; c < cols; c++) {
+        newMatrix[c] = [];
+        for (let r = 0; r < rows; r++) {
+          newMatrix[c][r] = matrix[rows - 1 - r][c];
+        }
+      }
+      return newMatrix;
+    }
+
+    // Tetrimino definitions with all 4 rotations
+    const TETROMINOS_BASE = {
+      'I': {
+        shape: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], color: 'cyan'
+      },
+      'J': {
+        shape: [[1,0,0],[1,1,1],[0,0,0]], color: 'blue'
+      },
+      'L': {
+        shape: [[0,0,1],[1,1,1],[0,0,0]], color: 'orange'
+      },
+      'O': { // O shape doesn't need multiple rotation states in its array, but we'll generate them for consistency
+        shape: [[1,1],[1,1]], color: 'yellow'
+      },
+      'S': {
+        shape: [[0,1,1],[1,1,0],[0,0,0]], color: 'green'
+      },
+      'T': {
+        shape: [[0,1,0],[1,1,1],[0,0,0]], color: 'purple'
+      },
+      'Z': {
+        shape: [[1,1,0],[0,1,1],[0,0,0]], color: 'red'
+      }
+    };
+
+    const TETROMINOS = {};
+    for (const key in TETROMINOS_BASE) {
+      const base = TETROMINOS_BASE[key];
+      TETROMINOS[key] = {
+        shapes: [base.shape], // Start with the base shape
+        color: base.color
+      };
+      let currentShape = base.shape;
+      for (let i = 0; i < 3; i++) { // Generate next 3 rotations
+        currentShape = rotateMatrix(currentShape);
+        TETROMINOS[key].shapes.push(currentShape);
+      }
+    }
+
+    // Game constants
+    const BOARD_WIDTH = 10;
+    const BOARD_HEIGHT = 20;
+    const BLOCK_SIZE = 30;
+
+    // Canvas and context
+    const canvas = document.getElementById('tetris-board');
+    const context = canvas.getContext('2d');
+
+    // Set canvas dimensions
+    canvas.width = BOARD_WIDTH * BLOCK_SIZE;
+    canvas.height = BOARD_HEIGHT * BLOCK_SIZE;
+
+    // Game board state (2D array)
+    // 0 represents an empty cell
+    let board = [];
+    function initializeBoard() {
+      for (let row = 0; row < BOARD_HEIGHT; row++) {
+        board[row] = [];
+        for (let col = 0; col < BOARD_WIDTH; col++) {
+          board[row][col] = 0;
+        }
+      }
+    }
+
+    // Tetromino Bag
+    let tetrominoBag = [];
+
+    function fillBag() {
+      const pieces = Object.keys(TETROMINOS);
+      // Shuffle (Fisher-Yates)
+      for (let i = pieces.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
+      }
+      tetrominoBag = pieces;
+    }
+
+    function getNextPieceType() {
+      if (tetrominoBag.length === 0) {
+        fillBag();
+      }
+      return tetrominoBag.pop();
+    }
+
+    // Current piece variables
+    let currentPiece = null; // Will hold the full tetrimino object {shapes, color}
+    let currentX = 0;
+    let currentY = 0;
+    let currentRotation = 0; // Index for currentPiece.shapes array (0-3)
+
+    // Game state variables
+    let score = 0;
+    let level = 1;
+    let totalLinesCleared = 0;
+    let nextTetrominoType = null; // To store the type of the next piece
+
+    // Game Loop variables
+    const initialFallInterval = 1000; // Base speed
+    let fallInterval = initialFallInterval; // Current speed, changes with level
+    let gameIntervalId = null;
+    let isGameOver = false;
+
+    // --- UI Update Function ---
+    function updateGameInfo() {
+        if (scoreElement) scoreElement.textContent = `Score: ${score}`;
+        if (levelElement) levelElement.textContent = `Level: ${level}`;
+        if (linesElement) linesElement.textContent = `Lines: ${totalLinesCleared}`;
+    }
+
+    // --- Next Piece Logic ---
+    function prepareNextPiece() {
+      nextTetrominoType = getNextPieceType(); // Fetches from bag and sets up for next spawn
+    }
+
+    function drawNextPiece() {
+      if (!nextPieceContext || !nextTetrominoType) {
+        if (nextPieceContext) drawNextPieceBackground(); // Clear it if no type
+        return;
+      }
+      drawNextPieceBackground(); // Clear previous piece
+
+      const pieceData = TETROMINOS[nextTetrominoType];
+      const shape = pieceData.shapes[0]; // Default rotation
+      const color = pieceData.color;
+      
+      // Calculate centering offset for the piece within the nextPieceCanvas
+      // Assuming pieces are in a 4x4 grid and nextPieceCanvas is BLOCK_SIZE * 4
+      const pieceActualWidth = shape[0].reduce((acc, val) => val ? acc + 1 : acc, 0) || // if first row empty
+                               shape.reduce((max, row) => Math.max(max, row.filter(x=>x).length), 0);
+      const pieceActualHeight = shape.filter(row => row.some(cell => cell)).length;
+
+      // More accurate centering based on the piece's bounding box within its matrix
+      let minR = shape.length, maxR = -1, minC = shape[0].length, maxC = -1;
+      for(let r=0; r < shape.length; ++r) {
+          for(let c=0; c < shape[r].length; ++c) {
+              if(shape[r][c]) {
+                  minR = Math.min(minR, r);
+                  maxR = Math.max(maxR, r);
+                  minC = Math.min(minC, c);
+                  maxC = Math.max(maxC, c);
+              }
+          }
+      }
+      const boundingWidth = (maxC - minC + 1) * BLOCK_SIZE;
+      const boundingHeight = (maxR - minR + 1) * BLOCK_SIZE;
+
+      const offsetX = (nextPieceCanvas.width - boundingWidth) / 2;
+      const offsetY = (nextPieceCanvas.height - boundingHeight) / 2;
+
+      // Draw the piece using drawBlock, adjusting for the matrix's own empty space
+      nextPieceContext.fillStyle = color;
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            // Draw relative to the piece's top-left in its matrix, then apply offset
+            nextPieceContext.fillRect(
+                offsetX + (c - minC) * BLOCK_SIZE, 
+                offsetY + (r - minR) * BLOCK_SIZE, 
+                BLOCK_SIZE, BLOCK_SIZE);
+            nextPieceContext.strokeStyle = '#333';
+            nextPieceContext.strokeRect(
+                offsetX + (c - minC) * BLOCK_SIZE, 
+                offsetY + (r - minR) * BLOCK_SIZE, 
+                BLOCK_SIZE, BLOCK_SIZE);
+          }
+        }
+      }
+    }
+
+
+    function spawnNewPiece() {
+      if (isGameOver) return;
+
+      // currentPiece takes what was previously prepared as 'next'
+      if (nextTetrominoType) {
+        currentPiece = TETROMINOS[nextTetrominoType];
+      } else { // Should only happen on first spawn or if bag logic is flawed
+        currentPiece = TETROMINOS[getNextPieceType()];
+      }
+      currentRotation = 0;
+      // Prepare the *next* piece
+      prepareNextPiece();
+      drawNextPiece(); // Update the preview
+
+      const pieceShape = currentPiece.shapes[currentRotation];
+      let pieceWidth = 0;
+      if(pieceShape.length > 0 && pieceShape[0].length > 0){
+          // Find actual width based on 1s, not just matrix width
+          let minCol = pieceShape[0].length;
+          let maxCol = 0;
+          for(let r=0; r<pieceShape.length; ++r){
+              for(let c=0; c<pieceShape[r].length; ++c){
+                  if(pieceShape[r][c]){
+                      minCol = Math.min(minCol, c);
+                      maxCol = Math.max(maxCol, c);
+                  }
+              }
+          }
+          pieceWidth = (minCol <= maxCol) ? (maxCol - minCol + 1) : 0;
+      }
+      currentX = Math.floor(BOARD_WIDTH / 2) - Math.floor(pieceWidth / 2);
+      if(pieceWidth > 0 && pieceShape.length > 0 && pieceShape[0].length > 0) { // Adjust X for pieces not starting at col 0 in their matrix
+        let minCol = pieceShape[0].length;
+         for(let r=0; r<pieceShape.length; ++r){
+              for(let c=0; c<pieceShape[r].length; ++c){
+                  if(pieceShape[r][c]){
+                      minCol = Math.min(minCol, c);
+                  }
+              }
+          }
+        currentX -= minCol;
+      }
+
+
+      currentY = 0; 
+      let topMostBlockRow = -1;
+      for (let r = 0; r < pieceShape.length; r++) {
+          if (pieceShape[r].some(cell => cell !== 0)) {
+              topMostBlockRow = r;
+              break;
+          }
+      }
+      if (topMostBlockRow > 0) {
+          currentY -= topMostBlockRow;
+      }
+
+      if (!isValidMove(pieceShape, currentX, currentY)) {
+        isGameOver = true;
+        stopGameLoop();
+        currentPiece = null;
+        // alert("Game Over! Press R or Restart button to play again."); // Alert is now handled by drawBoard
+        drawBoard(); 
+        return;
+      }
+    }
+
+    // Function to draw a single block (used by drawBoard and drawPiece)
+    function drawBlock(x, y, color, targetContext = context) {
+      targetContext.fillStyle = color;
+      targetContext.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+      targetContext.strokeStyle = '#333';
+      targetContext.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+    }
+
+    // Function to draw a tetrimino piece using its current rotation
+    function drawPiece(pieceData, x, y, rotationIndex, targetContext) {
+      const shape = pieceData.shapes[rotationIndex];
+      const color = pieceData.color;
+
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            drawBlock(x + c, y + r, color, targetContext);
+          }
+        }
+      }
+    }
+
+    // Collision Detection Function (takes the specific shape to check)
+    function isValidMove(pieceShape, x, y) {
+      for (let r = 0; r < pieceShape.length; r++) {
+        for (let c = 0; c < pieceShape[r].length; c++) {
+          if (pieceShape[r][c]) {
+            const boardX = x + c;
+            const boardY = y + r;
+
+            if (boardX < 0 || boardX >= BOARD_WIDTH || boardY >= BOARD_HEIGHT) {
+              return false;
+            }
+            if (boardY >= 0 && board[boardY][boardX] !== 0) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    }
+
+    // --- Line Clearing Logic & Scoring/Leveling ---
+    function removeLine(rowY) {
+      for (let y = rowY; y > 0; y--) {
+        board[y] = [...board[y - 1]];
+      }
+      board[0] = new Array(BOARD_WIDTH).fill(0);
+    }
+
+    const lineClearPoints = [0, 100, 300, 500, 800]; // Index 0 for 0 lines, 1 for 1 line etc.
+
+    function checkLineClears() {
+      let linesClearedThisTurn = 0;
+      for (let y = BOARD_HEIGHT - 1; y >= 0; y--) {
+        if (board[y].every(cell => cell !== 0)) {
+          removeLine(y);
+          linesClearedThisTurn++;
+          y++; // Re-check the current index as rows shifted
+        }
+      }
+
+      if (linesClearedThisTurn > 0) {
+        // Score points
+        score += (lineClearPoints[linesClearedThisTurn] || lineClearPoints[4]) * level; // Use points for 4 lines if more are cleared (e.g. custom modes)
+        totalLinesCleared += linesClearedThisTurn;
+
+        // Check for level up
+        if (totalLinesCleared >= level * 10) {
+          level++;
+          fallInterval = Math.max(100, initialFallInterval - (level - 1) * 50);
+          console.log(`Level up! New level: ${level}, New fall interval: ${fallInterval}`);
+          stopGameLoop(); // Stop current loop
+          startGameLoop(); // Start new loop with new speed (if game not over)
+        }
+        updateGameInfo(); // Update score, lines, level display
+      }
+      return linesClearedThisTurn;
+    }
+
+    // Place Piece Function (uses current rotation)
+    function placePiece() {
+      if (!currentPiece || isGameOver) return;
+      const shape = currentPiece.shapes[currentRotation];
+      for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+          if (shape[r][c]) {
+            const boardX = currentX + c;
+            const boardY = currentY + r;
+            if (boardY >= 0 && boardY < BOARD_HEIGHT && boardX >= 0 && boardX < BOARD_WIDTH) {
+                 board[boardY][boardX] = currentPiece.color;
+            }
+          }
+        }
+      }
+      checkLineClears(); // This now handles scoring and leveling for line clears
+    }
+
+    // Piece Movement Functions (use current rotation's shape for checks)
+    function moveLeft() {
+      if (!currentPiece || isGameOver) return;
+      const currentShape = currentPiece.shapes[currentRotation];
+      if (isValidMove(currentShape, currentX - 1, currentY)) {
+        currentX--;
+        if (!isGameOver) drawBoard();
+      }
+    }
+
+    function moveRight() {
+      if (!currentPiece || isGameOver) return;
+      const currentShape = currentPiece.shapes[currentRotation];
+      if (isValidMove(currentShape, currentX + 1, currentY)) {
+        currentX++;
+        if (!isGameOver) drawBoard();
+      }
+    }
+
+    function softDrop() {
+      const currentShape = currentPiece.shapes[currentRotation];
+      if (isValidMove(currentShape, currentX, currentY + 1)) {
+        currentY++;
+      } else {
+        placePiece();
+        spawnNewPiece();
+      }
+      if (!isGameOver) {
+          drawBoard();
+      }
+    }
+
+    // Hard Drop Function
+    function hardDrop() {
+      if (!currentPiece || isGameOver) return;
+      const shape = currentPiece.shapes[currentRotation];
+      let cellsDropped = 0;
+      while (isValidMove(shape, currentX, currentY + 1)) {
+        currentY++;
+        cellsDropped++;
+      }
+
+      if (cellsDropped > 0) {
+        score += cellsDropped * 2; // Add points for hard drop
+        // updateGameInfo(); // No need to call here, placePiece -> checkLineClears will, or spawnNewPiece -> drawBoard
+      }
+
+      placePiece();   // Handles line clear scoring & leveling
+      spawnNewPiece(); // Handles game over
+      
+      // If score changed due to hard drop cells, and no line clear happened, UI might need update.
+      // However, drawBoard is called if not game over, which should be sufficient.
+      // Let's ensure updateGameInfo is called if score changed and no lines were cleared by placePiece.
+      // This is a bit tricky, as placePiece calls checkLineClears which calls updateGameInfo.
+      // For simplicity, we can call updateGameInfo if score changed and it's not game over.
+      // A better approach might be for checkLineClears to return if score was updated.
+      if (cellsDropped > 0 && !isGameOver) { // If score changed and game not over
+          updateGameInfo(); // Ensure score from hard drop is shown if no lines were cleared
+      }
+
+      if (!isGameOver) {
+          drawBoard();
+      }
+    }
+
+    // Rotate Piece Function
+    function rotatePiece(clockwise = true) {
+      if (!currentPiece || isGameOver) return;
+      const nextRotation = (currentRotation + (clockwise ? 1 : 3)) % 4;
+      const rotatedShape = currentPiece.shapes[nextRotation];
+
+      // Test 1: No wall kick
+      if (isValidMove(rotatedShape, currentX, currentY)) {
+        currentRotation = nextRotation;
+      }
+      // Test 2: Wall Kick Right (+1)
+      else if (isValidMove(rotatedShape, currentX + 1, currentY)) {
+        currentX++;
+        currentRotation = nextRotation;
+      }
+      // Test 3: Wall Kick Left (-1)
+      else if (isValidMove(rotatedShape, currentX - 1, currentY)) {
+        currentX--;
+        currentRotation = nextRotation;
+      }
+      // Test 4: Specific I-piece wall kicks (can be more complex, e.g. +/- 2)
+      // For I-piece, it might need to kick 2 spaces
+      else if (currentPiece === TETROMINOS['I']) {
+          if (isValidMove(rotatedShape, currentX + 2, currentY)) {
+              currentX +=2;
+              currentRotation = nextRotation;
+          } else if (isValidMove(rotatedShape, currentX - 2, currentY)) {
+              currentX -=2;
+              currentRotation = nextRotation;
+          }
+      }
+      // Add more wall kick tests if needed, e.g. for SRS
+
+      if (!isGameOver) drawBoard();
+    }
+
+
+    // Function to draw the entire game board
+    function drawBoard() {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.strokeStyle = '#ccc';
+
+      for (let row = 0; row < BOARD_HEIGHT; row++) {
+        for (let col = 0; col < BOARD_WIDTH; col++) {
+          if (board[row][col] !== 0) {
+            drawBlock(col, row, board[row][col], context);
+          } else {
+            context.strokeRect(col * BLOCK_SIZE, row * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+          }
+        }
+      }
+
+      if (currentPiece && !isGameOver) { // Only draw current piece if game is active
+        drawPiece(currentPiece, currentX, currentY, currentRotation, context);
+      }
+      // Optionally, draw "Game Over" text on canvas if isGameOver is true
+      if (isGameOver) {
+          context.fillStyle = 'rgba(0, 0, 0, 0.8)'; // Slightly darker overlay
+          context.fillRect(0, canvas.height / 3, canvas.width, canvas.height / 3);
+          
+          context.font = 'bold 30px Arial'; // Larger, bolder font
+          context.fillStyle = 'white';
+          context.textAlign = 'center';
+          context.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 15);
+          
+          context.font = '18px Arial'; // Slightly larger subtext
+          context.fillText('Press R or Restart', canvas.width / 2, canvas.height / 2 + 20);
+      }
+    }
+
+    // Game Loop
+    function gameTick() {
+      if (isGameOver) {
+          stopGameLoop();
+          return;
+      }
+      softDrop();
+    }
+
+    function startGameLoop() {
+      if (isGameOver) return;
+      if (gameIntervalId) clearInterval(gameIntervalId);
+      gameIntervalId = setInterval(gameTick, fallInterval);
+    }
+
+    function stopGameLoop() {
+      clearInterval(gameIntervalId);
+      gameIntervalId = null;
+    }
+
+    // Keyboard Event Listeners
+    function handleKeyPress(event) {
+      // Allow restart via 'R' key regardless of game state
+      if (event.key === 'r' || event.key === 'R') {
+          const restartButton = document.getElementById('restart-button');
+          if (restartButton) restartButton.click(); // Simulate click on restart button
+          return;
+      }
+
+      if (isGameOver || !currentPiece) return; // No actions if game over or no piece
+
+      switch (event.key) {
+        case 'ArrowLeft':
+        case 'a':
+          moveLeft();
+          break;
+        case 'ArrowRight':
+        case 'd':
+          moveRight();
+          break;
+        case 'ArrowDown':
+        case 's':
+          softDrop();
+          break;
+        case 'ArrowUp': // Assigned to Hard Drop
+          hardDrop();
+          break;
+        case ' ': // Space bar for rotate (kept)
+        case 'w': // Common alternative for rotate (kept)
+        case 'x': // Another common for rotate clockwise (kept)
+          rotatePiece(true);
+          break;
+        // case 'z': // For counter-clockwise rotation (example)
+        //   rotatePiece(false);
+        //   break;
+      }
+    }
+    document.addEventListener('keydown', handleKeyPress);
+
+
+    // Initialize and draw the board when the script loads
+    function initializeGame() {
+        isGameOver = false;
+        score = 0;
+        level = 1;
+        totalLinesCleared = 0;
+        fallInterval = initialFallInterval;
+        currentPiece = null; // Explicitly nullify current piece
+        nextTetrominoType = null; // Reset next piece type
+
+        updateGameInfo();
+        initializeBoard();
+        fillBag(); // Fill the bag first
+
+        // Setup first piece and next piece
+        prepareNextPiece(); // Determine what currentPiece will be (it's the "next" from empty state)
+        spawnNewPiece();    // This will use the prepared nextTetrominoType for currentPiece, then prepare the *actual* next
+        
+        drawBoard(); // Draw initial board (empty or with first piece)
+        // drawNextPiece(); // spawnNewPiece now calls this
+
+        if (!isGameOver) {
+            startGameLoop();
+        } else {
+            drawBoard(); // Ensure game over screen is shown if game over on first spawn
+        }
+    }
+    
+
+
+    // --- Next Piece Canvas --- (Setup remains the same)
+    const nextPieceCanvas = document.getElementById('next-piece-canvas');
+    const nextPieceContext = nextPieceCanvas.getContext('2d');
+    const NEXT_PIECE_GRID_SIZE = 4; // Assuming 4x4 grid for pieces
+    nextPieceCanvas.width = NEXT_PIECE_GRID_SIZE * BLOCK_SIZE;
+    nextPieceCanvas.height = NEXT_PIECE_GRID_SIZE * BLOCK_SIZE;
+
+    function drawNextPieceBackground() {
+        if (!nextPieceContext) return;
+        nextPieceContext.fillStyle = '#e0e0e0'; 
+        nextPieceContext.fillRect(0, 0, nextPieceCanvas.width, nextPieceCanvas.height);
+        nextPieceContext.strokeStyle = '#999'; 
+        nextPieceContext.strokeRect(0,0, nextPieceCanvas.width, nextPieceCanvas.height);
+    }
+    // Initial draw of next piece background is handled by initializeGame -> spawnNewPiece -> drawNextPiece
+    
+    // --- Game Info Elements ---
+    const scoreElement = document.getElementById('score');
+    const levelElement = document.getElementById('level');
+    const linesElement = document.getElementById('lines');
+
+    // --- Restart Button ---
+    const restartButton = document.getElementById('restart-button');
+    restartButton.addEventListener('click', () => {
+        console.log("Restart button clicked");
+        stopGameLoop();
+        initializeGame(); 
+        // initializeGame now calls drawNextPieceBackground via drawNextPiece,
+        // and also draws the next piece.
+    });
+
+    initializeGame(); // Call to start the game when script loads
+
+  </script>
+
+</body>
+</html>
