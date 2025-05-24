@@ -356,11 +356,13 @@
     }
 
     // Function to draw a single block (used by drawBoard and drawPiece)
-    function drawBlock(x, y, color, targetContext = context) {
+    function drawBlock(x, y, color, targetContext = context, drawBorder = true) {
       targetContext.fillStyle = color;
       targetContext.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
-      targetContext.strokeStyle = '#333';
-      targetContext.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+      if (drawBorder) {
+        targetContext.strokeStyle = '#333'; // Border for active piece or preview
+        targetContext.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+      }
     }
 
     // Function to draw a tetrimino piece using its current rotation
@@ -371,7 +373,8 @@
       for (let r = 0; r < shape.length; r++) {
         for (let c = 0; c < shape[r].length; c++) {
           if (shape[r][c]) {
-            drawBlock(x + c, y + r, color, targetContext);
+            // Falling pieces should have borders, so drawBorder = true (or rely on default)
+            drawBlock(x + c, y + r, color, targetContext, true); 
           }
         }
       }
@@ -558,24 +561,26 @@
     // Function to draw the entire game board
     function drawBoard() {
       context.clearRect(0, 0, canvas.width, canvas.height);
-      context.strokeStyle = '#ccc';
+      context.strokeStyle = '#ccc'; // Default color for grid lines
 
       for (let row = 0; row < BOARD_HEIGHT; row++) {
         for (let col = 0; col < BOARD_WIDTH; col++) {
-          if (board[row][col] !== 0) {
-            drawBlock(col, row, board[row][col], context);
-          } else {
+          if (board[row][col] !== 0) { // Placed piece
+            drawBlock(col, row, board[row][col], context, false); // No border for placed pieces
+          } else { // Empty cell
+            // Draw grid line for empty cells
+            context.strokeStyle = '#ccc'; // Ensure grid line color
             context.strokeRect(col * BLOCK_SIZE, row * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
           }
         }
       }
 
       if (currentPiece && !isGameOver) { // Only draw current piece if game is active
-        drawPiece(currentPiece, currentX, currentY, currentRotation, context);
+        drawPiece(currentPiece, currentX, currentY, currentRotation, context); // This will use drawBlock with borders
       }
-      // Optionally, draw "Game Over" text on canvas if isGameOver is true
+      
       if (isGameOver) {
-          context.fillStyle = 'rgba(0, 0, 0, 0.8)'; // Slightly darker overlay
+          context.fillStyle = 'rgba(0, 0, 0, 0.8)'; 
           context.fillRect(0, canvas.height / 3, canvas.width, canvas.height / 3);
           
           context.font = 'bold 30px Arial'; // Larger, bolder font
@@ -681,18 +686,18 @@
     // --- Next Piece Canvas --- (Setup remains the same)
     const nextPieceCanvas = document.getElementById('next-piece-canvas');
     const nextPieceContext = nextPieceCanvas.getContext('2d');
-    const NEXT_PIECE_GRID_SIZE = 4; // Assuming 4x4 grid for pieces
+    const NEXT_PIECE_GRID_SIZE = 4; 
     nextPieceCanvas.width = NEXT_PIECE_GRID_SIZE * BLOCK_SIZE;
     nextPieceCanvas.height = NEXT_PIECE_GRID_SIZE * BLOCK_SIZE;
 
-    function drawNextPieceBackground() {
+    function drawNextPieceBackground() { // This just draws the background box for the next piece area
         if (!nextPieceContext) return;
-        nextPieceContext.fillStyle = '#e0e0e0'; 
+        nextPieceContext.fillStyle = '#e0e0e0';
         nextPieceContext.fillRect(0, 0, nextPieceCanvas.width, nextPieceCanvas.height);
-        nextPieceContext.strokeStyle = '#999'; 
+        nextPieceContext.strokeStyle = '#999';
         nextPieceContext.strokeRect(0,0, nextPieceCanvas.width, nextPieceCanvas.height);
     }
-    // Initial draw of next piece background is handled by initializeGame -> spawnNewPiece -> drawNextPiece
+    // Note: The actual piece in drawNextPiece will call drawBlock with borders by default.
     
     // --- Game Info Elements ---
     const scoreElement = document.getElementById('score');
